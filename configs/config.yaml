@@ -1,0 +1,7 @@
+# Dataset
+
+image_size: 32
+num_classes: 10
+
+mnist_path: "data/mnist.pkl"
+fashionmnist_path: "data/fashionmnist.pkl"
