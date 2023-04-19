@@ -14,3 +14,7 @@ bottom_width: 4
 z_dim: 128
 shared_dim: 8
 num_chunks: 8
+
+# Classifier
+
+class_base_channels: 32
