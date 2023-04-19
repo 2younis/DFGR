@@ -2,6 +2,15 @@
 
 image_size: 32
 num_classes: 10
+img_channels: 1
 
 mnist_path: "data/mnist.pkl"
 fashionmnist_path: "data/fashionmnist.pkl"
+
+# Generator
+
+gen_base_channels: 32
+bottom_width: 4
+z_dim: 128
+shared_dim: 8
+num_chunks: 8
