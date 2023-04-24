@@ -3,7 +3,7 @@ import shutil
 
 import mlflow
 from configs import config
-from trainer import train_classifier, train_generator
+from trainer import train_classifier, train_generator, validate_classifier
 
 cfg = config.cfg("configs/config.yaml")
 
@@ -23,6 +23,9 @@ for i, generator_params in enumerate(cfg["generator_loss_coeffs"]):
                 mlflow.log_param("task", cl_task)
 
                 train_classifier(cl_task)
+
+            with mlflow.start_run():
+                validate_classifier()
 
             with mlflow.start_run():
                 mlflow.log_param("task_no", task_no)

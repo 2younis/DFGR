@@ -2,13 +2,17 @@ import mlflow
 import torch
 import torch.nn.functional as F
 from configs import config
-from dataset.dataset import (TestDatasetComplete, TrainDatasetComplete,
-                             TrainDatasetUnbalanced)
+from dataset.dataset import (
+    TestDatasetComplete,
+    TrainDatasetComplete,
+    TrainDatasetUnbalanced,
+)
 from models.classifier import Classifier
 from models.generator import Generator
 from torch import nn
 from torch.utils.data import DataLoader
 from utils.loss import focal_loss, js_divergence, merge_gaussians
+
 
 cfg = config.cfg("configs/config.yaml")
 
@@ -75,7 +79,7 @@ def train_classifier(task):
     mlflow.log_param("classifier replay task", replay_tasks)
     mlflow.log_param("mix ratio", mix_ratio)
 
-    train_len = len(dataset)
+    dataset_len = len(dataset)
 
     for epoch in range(cfg["max_epochs"]):
         train_loss = 0
@@ -140,9 +144,9 @@ def train_classifier(task):
                 replay_epoch_losses, replay_labels, probabilities
             )
 
-        train_loss /= train_len / cfg["cl_batch_size"]
-        real_losses /= train_len / cfg["cl_batch_size"]
-        replay_losses /= train_len / cfg["cl_batch_size"]
+        train_loss /= dataset_len / cfg["cl_batch_size"]
+        real_losses /= dataset_len / cfg["cl_batch_size"]
+        replay_losses /= dataset_len / cfg["cl_batch_size"]
 
         mlflow.log_metric("Total Loss", train_loss, step=epoch)
         mlflow.log_metric("Real Loss", real_losses, step=epoch)
@@ -159,7 +163,8 @@ def train_classifier(task):
             torch.save(model_checkpoint, cfg["classifier_model_file"])
         else:
             patience_counter += 1
-            mlflow.log_metric("Best loss", best_loss, step=epoch)
+
+        mlflow.log_metric("Best loss", best_loss, step=epoch)
 
         if patience_counter >= cfg["cl_max_patience"]:
             break
@@ -219,8 +224,8 @@ def train_generator(task, generator_params):
 
     features_dict = torch.load(cfg["features_file"])
 
-    train_len = len(task) * cfg["images_per_task"]
-    gen_batches = int(train_len / cfg["gen_batch_size"])
+    dataset_len = len(task) * cfg["images_per_task"]
+    gen_batches = int(dataset_len / cfg["gen_batch_size"])
 
     for epoch in range(cfg["max_epochs"]):
         div_losses = 0
@@ -282,11 +287,11 @@ def train_generator(task, generator_params):
             div_losses += div_loss.item()
             g_losses += g_loss.item()
 
-        div_losses /= train_len / cfg["gen_batch_size"]
-        class_losses /= train_len / cfg["gen_batch_size"]
-        features_losses /= train_len / cfg["gen_batch_size"]
-        batchmorm_losses /= train_len / cfg["gen_batch_size"]
-        g_losses /= train_len / cfg["gen_batch_size"]
+        div_losses /= dataset_len / cfg["gen_batch_size"]
+        class_losses /= dataset_len / cfg["gen_batch_size"]
+        features_losses /= dataset_len / cfg["gen_batch_size"]
+        batchmorm_losses /= dataset_len / cfg["gen_batch_size"]
+        g_losses /= dataset_len / cfg["gen_batch_size"]
 
         mlflow.log_metric("divergence loss", div_losses, step=epoch)
         mlflow.log_metric("classification loss", class_losses, step=epoch)
@@ -305,10 +310,62 @@ def train_generator(task, generator_params):
             torch.save(model_checkpoint, cfg["generator_model_file"])
         else:
             patience_counter += 1
-            mlflow.log_metric("Best loss", best_loss, step=epoch)
 
-        if patience_counter >= cfg["cl_max_patience"]:
+        mlflow.log_metric("Best loss", best_loss, step=epoch)
+
+        if patience_counter >= cfg["gen_max_patience"]:
             break
+
+
+def validate_classifier():
+
+    trained_tasks = {}
+
+    if cfg["classifier_checkpoint_path"].is_file():
+        model_checkpoint = torch.load(cfg["classifier_model_file"])
+        classifier.load_state_dict(model_checkpoint["model"])
+        trained_tasks = model_checkpoint["trained_tasks"]
+        classifier.to(cfg["device"])
+
+    classifier.eval()
+
+    mlflow.log_param("validation task", trained_tasks)
+
+    overall_correct = 0
+    overall_total = 0
+
+    for task_id, task_probability in trained_tasks.items():
+
+        dataset = TrainDatasetUnbalanced(
+            cfg, {task_id: task_probability}, dataset=cfg["image_dataset"]
+        )
+
+        dataloader = DataLoader(dataset, batch_size=cfg["val_batch_size"])
+
+        total = len(dataset)
+        overall_total += total
+
+        valid_loss = 0
+        correct = 0
+
+        with torch.no_grad():
+            for imgs, labels in dataloader:
+
+                imgs, labels = imgs.to(cfg["device"]), labels.to(cfg["device"])
+                output, _ = classifier(imgs)
+
+                valid_loss += F.cross_entropy(output, labels).item()
+                max_indices = output.max(1)[1]
+                correct += (max_indices == labels).sum().detach().item()
+
+                valid_loss /= total / cfg["val_batch_size"]
+
+        overall_correct += correct
+
+        mlflow.log_metric("loss task id " + str(task_id), valid_loss)
+        mlflow.log_metric("accuracy task id " + str(task_id), 100.0 * correct / total)
+
+    mlflow.log_metric("overall accuracy", 100.0 * overall_correct / overall_total)
 
 
 def save_features(cfg):
@@ -322,7 +379,7 @@ def save_features(cfg):
     classifier.eval()
 
     dataset = TrainDatasetUnbalanced(cfg, trained_tasks, dataset=cfg["image_dataset"])
-    dataloader = DataLoader(dataset, batch_size=cfg["cl_batch_size"], shuffle=True)
+    dataloader = DataLoader(dataset, batch_size=cfg["val_batch_size"], shuffle=True)
 
     features = None
     classes = None

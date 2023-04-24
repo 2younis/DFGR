@@ -27,7 +27,7 @@ classifier_model_file: "saved_models/classifier.pth"
 
 # Training
 
-max_epochs: 20
+max_epochs: 2500
 max_loss: "inf"
 
 features_file: "data/features.pt"
@@ -37,7 +37,7 @@ features_file: "data/features.pt"
 gen_optimizer_lr: 0.0001
 gen_optimizer_beta_1: 0.0
 gen_batch_size: 128
-gen_max_patience: 50
+gen_max_patience: 100
 
 images_per_task: 6000
 
@@ -56,6 +56,10 @@ cl_batch_size: 32
 cl_max_patience: 50
 
 truncation: 0.9
+
+# Validation
+
+val_batch_size: 128
 
 # Tasks
 
