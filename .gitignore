@@ -1,1 +1,5 @@
+*.pyc
+
 data/
+mlruns/
+saved_models/

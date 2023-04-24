@@ -7,6 +7,8 @@ img_channels: 1
 mnist_path: "data/mnist.pkl"
 fashionmnist_path: "data/fashionmnist.pkl"
 
+image_dataset: "mnist"
+
 # Generator
 
 gen_base_channels: 32
@@ -15,6 +17,57 @@ z_dim: 128
 shared_dim: 8
 num_chunks: 8
 
+generator_model_file: "saved_models/generator.pth"
+
 # Classifier
 
-class_base_channels: 32
+cl_base_channels: 32
+
+classifier_model_file: "saved_models/classifier.pth"
+
+# Training
+
+max_epochs: 20
+max_loss: "inf"
+
+features_file: "data/features.pt"
+
+# Generator Training
+
+gen_optimizer_lr: 0.0001
+gen_optimizer_beta_1: 0.0
+gen_batch_size: 128
+gen_max_patience: 50
+
+images_per_task: 6000
+
+delta: [100.0, 0.0]
+alpha: [1.0, 0.0]
+beta: [1.0, 0.0]
+gamma: [1.0, 0.0]
+
+# Classifier Training
+
+optimizer_beta_2: 0.999
+
+cl_optimizer_lr: 0.0001
+cl_optimizer_beta_1: 0.5
+cl_batch_size: 32
+cl_max_patience: 50
+
+truncation: 0.9
+
+# Tasks
+
+scenarios: {
+    "scenario a": [
+        {3: 1.0, 4: 1.0, 9: 1.0},
+        {5: 1.0, 6: 1.0, 0: 1.0},
+        {1: 1.0, 2: 1.0, 8: 1.0, 7: 1.0},
+    ],
+    "scenario b": [
+        {3: 1.0, 4: 0.6, 9: 0.5},
+        {5: 1.0, 6: 0.4, 0: 1.0},
+        {1: 0.9, 2: 1.0, 8: 0.7, 7: 1.0},
+    ],
+}

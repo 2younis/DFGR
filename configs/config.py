@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import torch
 import yaml
 
@@ -6,11 +8,26 @@ def cfg(path):
     with open(path, "r") as file:
         try:
             config = yaml.safe_load(file)
+
             config["device"] = (
                 torch.device("cuda")
                 if torch.cuda.is_available()
                 else torch.device("cpu")
             )
+
+            config["generator_checkpoint_path"] = Path(config["generator_model_file"])
+            config["classifier_checkpoint_path"] = Path(config["classifier_model_file"])
+
+            config["generator_loss_coeffs"] = [
+                (delta, alpha, beta, gamma)
+                for delta in config["delta"]
+                for alpha in config["alpha"]
+                for beta in config["beta"]
+                for gamma in config["gamma"]
+                if delta == 1 or alpha == 1 or beta == 1
+            ]
+
+            config["num_div_samples"] = config["gen_batch_size"] // 3
         except yaml.YAMLError as exception:
             print(exception)
 
@@ -19,6 +36,7 @@ def cfg(path):
 
 if __name__ == "__main__":
 
-    config = cfg()
+    import pprint
 
-    print(config)
+    config = cfg("config.yaml")
+    pprint.pprint(config, sort_dicts=False)
