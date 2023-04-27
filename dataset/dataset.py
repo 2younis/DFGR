@@ -36,7 +36,7 @@ def load_fashionmnist(cfg):
     )
 
 
-def get_dataset_unbalanced(imgs, labels, classes_dict=None):
+def get_dataset_unbalanced(imgs, labels, classes_dict):
 
     if classes_dict is not None:
         total_indices = None
@@ -62,8 +62,16 @@ def get_dataset_unbalanced(imgs, labels, classes_dict=None):
     return None
 
 
+def get_dataset(imgs, labels, classe):
+
+    if classe is not None:
+        return imgs[np.where(labels == classe)[0]]
+
+    return None
+
+
 class TrainDatasetUnbalanced(Dataset):
-    def __init__(self, cfg, classes_dict, dataset="mnist"):
+    def __init__(self, cfg, classes_dict=None, dataset="mnist"):
 
         self.dataset = dataset
 
@@ -97,27 +105,28 @@ class TrainDatasetUnbalanced(Dataset):
         return image, label
 
 
-class TrainDatasetComplete(Dataset):
-    def __init__(self, cfg, dataset="mnist"):
+class TrainDatasetPartial(Dataset):
+    def __init__(self, cfg, classe=None, dataset="mnist"):
 
         self.image_size = cfg["image_size"]
 
         self.dataset = dataset
+        self.classe = classe
 
         if self.dataset == "mnist":
-            self.x_train, self.t_train, _, _ = load_mnist(cfg)
+            x_train, t_train, _, _ = load_mnist(cfg)
         elif self.dataset == "fashion":
-            self.x_train, self.t_train, _, _ = load_fashionmnist(cfg)
+            x_train, t_train, _, _ = load_fashionmnist(cfg)
         else:
             print(f"Dataset {self.dataset} not available!")
             sys.exit()
+
+        self.x_train = get_dataset(x_train, t_train, self.classe)
 
     def __len__(self):
         return len(self.x_train)
 
     def __getitem__(self, idx):
-
-        label = int(self.t_train[idx])
 
         image = torch.from_numpy(self.x_train[idx])
         image = F.interpolate(image.unsqueeze(dim=0), size=self.image_size).squeeze(
@@ -125,30 +134,31 @@ class TrainDatasetComplete(Dataset):
         )
         image = mnist_normalize(image)
 
-        return image, label
+        return image, self.classe
 
 
-class TestDatasetComplete(Dataset):
-    def __init__(self, cfg, dataset="mnist"):
+class TestDatasetPartial(Dataset):
+    def __init__(self, cfg, classe=None, dataset="mnist"):
 
         self.image_size = cfg["image_size"]
 
         self.dataset = dataset
+        self.classe = classe
 
         if self.dataset == "mnist":
-            _, _, self.x_test, self.t_test = load_mnist(cfg)
+            _, _, x_test, t_test = load_mnist(cfg)
         elif self.dataset == "fashion":
-            _, _, self.x_test, self.t_test = load_fashionmnist(cfg)
+            _, _, x_test, t_test = load_fashionmnist(cfg)
         else:
             print(f"Dataset {self.dataset} not available!")
             sys.exit()
+
+        self.x_test = get_dataset(x_test, t_test, self.classe)
 
     def __len__(self):
         return len(self.x_test)
 
     def __getitem__(self, idx):
-
-        label = int(self.t_test[idx])
 
         image = torch.from_numpy(self.x_test[idx])
         image = F.interpolate(image.unsqueeze(dim=0), size=self.image_size).squeeze(
@@ -156,4 +166,4 @@ class TestDatasetComplete(Dataset):
         )
         image = mnist_normalize(image)
 
-        return image, label
+        return image, self.classe
