@@ -18,12 +18,13 @@ def cfg(path):
             config["generator_checkpoint_path"] = Path(config["generator_model_file"])
             config["classifier_checkpoint_path"] = Path(config["classifier_model_file"])
 
-            config["generator_loss_coeffs"] = [
-                (delta, alpha, beta, gamma)
+            config["training_params"] = [
+                ((delta, alpha, beta, gamma), adjust_replay)
                 for delta in config["delta"]
                 for alpha in config["alpha"]
                 for beta in config["beta"]
                 for gamma in config["gamma"]
+                for adjust_replay in config["adjust_replay"]
                 if delta == 1 or alpha == 1 or beta == 1
             ]
 

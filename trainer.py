@@ -1,38 +1,12 @@
 import mlflow
 import torch
-import torch.nn.functional as F
-from configs import config
-from dataset.dataset import (
-    TestDatasetComplete,
-    TrainDatasetComplete,
-    TrainDatasetUnbalanced,
-)
-from models.classifier import Classifier
-from models.generator import Generator
 from torch import nn
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
+
+from dataset.dataset import (TestDatasetPartial, TrainDatasetPartial,
+                             TrainDatasetUnbalanced)
 from utils.loss import focal_loss, js_divergence, merge_gaussians
-
-
-cfg = config.cfg("configs/config.yaml")
-
-
-generator = Generator(cfg).to(cfg["device"])
-
-g_optimizer = torch.optim.Adam(
-    generator.parameters(),
-    lr=cfg["gen_optimizer_lr"],
-    betas=(cfg["gen_optimizer_beta_1"], cfg["optimizer_beta_2"]),
-)
-
-
-classifier = Classifier(cfg).to(cfg["device"])
-
-cl_optimizer = torch.optim.Adam(
-    classifier.parameters(),
-    lr=cfg["cl_optimizer_lr"],
-    betas=(cfg["cl_optimizer_beta_1"], cfg["optimizer_beta_2"]),
-)
 
 
 def cumulative(lists):
@@ -42,28 +16,28 @@ def cumulative(lists):
     return cu_list[1:]
 
 
-def train_classifier(task):
+def train_classifier(cfg, task, adjust_replay):
 
     replay_tasks = {}
 
     if cfg["classifier_checkpoint_path"].is_file():
         model_checkpoint = torch.load(cfg["classifier_model_file"])
-        classifier.load_state_dict(model_checkpoint["model"])
-        classifier.to(cfg["device"])
+        cfg["classifier"].load_state_dict(model_checkpoint["model"])
+        cfg["classifier"].to(cfg["device"])
 
     if cfg["generator_checkpoint_path"].is_file():
         model_checkpoint = torch.load(cfg["generator_model_file"])
-        generator.load_state_dict(model_checkpoint["model"])
+        cfg["generator"].load_state_dict(model_checkpoint["model"])
         replay_tasks = model_checkpoint["replay_tasks"]
-        generator.to(cfg["device"])
-        generator.eval()
+        cfg["generator"].to(cfg["device"])
+        cfg["generator"].eval()
 
     best_loss = float(cfg["max_loss"])
     patience_counter = 0
 
     probabilities = None
 
-    classifier.train()
+    cfg["classifier"].train()
 
     if not replay_tasks:
         mix_ratio = 0
@@ -78,6 +52,7 @@ def train_classifier(task):
 
     mlflow.log_param("classifier replay task", replay_tasks)
     mlflow.log_param("mix ratio", mix_ratio)
+    mlflow.log_param("adjust replay probalilities", adjust_replay)
 
     dataset_len = len(dataset)
 
@@ -92,14 +67,14 @@ def train_classifier(task):
 
             imgs, labels = imgs.to(cfg["device"]), labels.to(cfg["device"])
 
-            cl_optimizer.zero_grad()
-            output, _ = classifier(imgs)
+            cfg["cl_optimizer"].zero_grad()
+            output, _ = cfg["classifier"](imgs)
 
             real_loss = focal_loss(cfg, output, labels)
 
             if mix_ratio > 0:
                 with torch.no_grad():
-                    gen_imgs, gen_labels = generator.generate(
+                    gen_imgs, gen_labels = cfg["generator"].generate(
                         cfg["cl_batch_size"],
                         replay_tasks,
                         trunc=cfg["truncation"],
@@ -110,7 +85,7 @@ def train_classifier(task):
                     gen_labels.to(cfg["device"]).detach(),
                 )
 
-                gen_output, _ = classifier(gen_imgs)
+                gen_output, _ = cfg["classifier"](gen_imgs)
                 replay_loss = F.cross_entropy(gen_output, gen_labels, reduction="none")
 
                 if replay_labels is None:
@@ -134,11 +109,11 @@ def train_classifier(task):
                 loss = real_loss
 
             loss.backward()
-            cl_optimizer.step()
+            cfg["cl_optimizer"].step()
             train_loss += loss.item()
             real_losses += real_loss.item()
 
-        if replay_labels is not None:
+        if replay_labels is not None and adjust_replay:
 
             probabilities = adjust_replay_probabilities(
                 replay_epoch_losses, replay_labels, probabilities
@@ -156,7 +131,7 @@ def train_classifier(task):
             best_loss = train_loss
             patience_counter = 0
             model_checkpoint = {
-                "model": classifier.state_dict(),
+                "model": cfg["classifier"].state_dict(),
                 "trained_tasks": task | replay_tasks,
                 "batch_size": cfg["cl_batch_size"],
             }
@@ -172,7 +147,7 @@ def train_classifier(task):
     save_features(cfg)
 
 
-def train_generator(task, generator_params):
+def train_generator(cfg, task, generator_params):
 
     delta, alpha, beta, gamma = generator_params
 
@@ -180,14 +155,14 @@ def train_generator(task, generator_params):
 
     if cfg["classifier_checkpoint_path"].is_file():
         model_checkpoint = torch.load(cfg["classifier_model_file"])
-        classifier.load_state_dict(model_checkpoint["model"])
-        classifier.to(cfg["device"])
+        cfg["classifier"].load_state_dict(model_checkpoint["model"])
+        cfg["classifier"].to(cfg["device"])
 
     if cfg["generator_checkpoint_path"].is_file():
         model_checkpoint = torch.load(cfg["generator_model_file"])
-        generator.load_state_dict(model_checkpoint["model"])
+        cfg["generator"].load_state_dict(model_checkpoint["model"])
         replay_tasks = model_checkpoint["replay_tasks"]
-        generator.to(cfg["device"])
+        cfg["generator"].to(cfg["device"])
 
         task |= replay_tasks
 
@@ -199,30 +174,34 @@ def train_generator(task, generator_params):
     mlflow.log_param("beta", beta)
     mlflow.log_param("gamma", gamma)
 
-    classifier.eval()
-    classifier.register_hooks()
+    cfg["classifier"].eval()
+    cfg["classifier"].register_hooks()
 
     best_loss = float(cfg["max_loss"])
     patience_counter = 0
 
-    batchnorm_means, batchnorm_vars = None, None
+    if beta > 0:
+        batchnorm_means, batchnorm_vars = None, None
 
-    for module in classifier.modules():
-        if isinstance(module, nn.BatchNorm2d):
+        for module in cfg["classifier"].modules():
+            if isinstance(module, nn.BatchNorm2d):
 
-            if batchnorm_means is None:
-                batchnorm_means = module.running_mean
-                batchnorm_vars = module.running_var
-            else:
-                batchnorm_means = torch.cat(
-                    [batchnorm_means, module.running_mean], dim=0
-                )
-                batchnorm_vars = torch.cat([batchnorm_vars, module.running_var], dim=0)
+                if batchnorm_means is None:
+                    batchnorm_means = module.running_mean
+                    batchnorm_vars = module.running_var
+                else:
+                    batchnorm_means = torch.cat(
+                        [batchnorm_means, module.running_mean], dim=0
+                    )
+                    batchnorm_vars = torch.cat(
+                        [batchnorm_vars, module.running_var], dim=0
+                    )
 
-    batchnorm_means = batchnorm_means[cfg["img_channels"] :]
-    batchnorm_vars = batchnorm_vars[cfg["img_channels"] :]
+        batchnorm_means = batchnorm_means[cfg["img_channels"] :]
+        batchnorm_vars = batchnorm_vars[cfg["img_channels"] :]
 
-    features_dict = torch.load(cfg["features_file"])
+    if alpha > 0:
+        features_dict = torch.load(cfg["features_file"])
 
     dataset_len = len(task) * cfg["images_per_task"]
     gen_batches = int(dataset_len / cfg["gen_batch_size"])
@@ -234,42 +213,47 @@ def train_generator(task, generator_params):
         class_losses = 0
         g_losses = 0
 
-        generator.train()
-        classifier.eval()
+        cfg["generator"].train()
+        cfg["classifier"].eval()
 
         for _ in range(gen_batches):
 
-            g_optimizer.zero_grad()
+            cfg["g_optimizer"].zero_grad()
 
-            fakes, labels = generator.generate(cfg["gen_batch_size"], task)
+            fakes, labels = cfg["generator"].generate(cfg["gen_batch_size"], task)
             fakes, labels = fakes.to(cfg["device"]), labels.to(cfg["device"])
 
-            sigma_1, mu1 = merge_gaussians(features_dict, labels)
+            output_fake, fake_h = cfg["classifier"](fakes)
 
-            output_fake, fake_h = classifier(fakes)
-            class_loss = F.cross_entropy(output_fake, labels)
+            if delta > 0:
+                class_loss = F.cross_entropy(output_fake, labels)
 
-            sigma_2, mu2 = torch.var_mean(fake_h, dim=0, unbiased=False)
+            if alpha > 0:
+                sigma_1, mu1 = merge_gaussians(features_dict, labels)
+                sigma_2, mu2 = torch.var_mean(fake_h, dim=0, unbiased=False)
 
-            batch_means, batch_vars = None, None
+                features_loss = torch.norm(mu1.to(cfg["device"]) - mu2) + torch.norm(
+                    sigma_1.to(cfg["device"]) - sigma_2
+                )
 
-            for hook in classifier.hooks:
-                if hook.mean is not None:
-                    if batch_means is None:
-                        batch_means = hook.mean
-                        batch_vars = hook.var
-                    else:
-                        batch_means = torch.cat([batch_means, hook.mean], dim=0)
-                        batch_vars = torch.cat([batch_vars, hook.var], dim=0)
+            if beta > 0:
+                batch_means, batch_vars = None, None
 
-            features_loss = torch.norm(mu1.to(cfg["device"]) - mu2) + torch.norm(
-                sigma_1.to(cfg["device"]) - sigma_2
-            )
-            batchmorm_loss = torch.norm(batchnorm_means - batch_means) + torch.norm(
-                batchnorm_vars - batch_vars
-            )
+                for hook in cfg["classifier"].hooks:
+                    if hook.mean is not None:
+                        if batch_means is None:
+                            batch_means = hook.mean
+                            batch_vars = hook.var
+                        else:
+                            batch_means = torch.cat([batch_means, hook.mean], dim=0)
+                            batch_vars = torch.cat([batch_vars, hook.var], dim=0)
 
-            div_loss = -js_divergence(fakes, cfg["num_div_samples"])
+                batchmorm_loss = torch.norm(batchnorm_means - batch_means) + torch.norm(
+                    batchnorm_vars - batch_vars
+                )
+
+            if gamma > 0:
+                div_loss = -js_divergence(fakes, cfg["num_div_samples"])
 
             g_loss = (
                 (delta * class_loss)
@@ -279,7 +263,7 @@ def train_generator(task, generator_params):
             )
 
             g_loss.backward()
-            g_optimizer.step()
+            cfg["g_optimizer"].step()
 
             class_losses += class_loss.item()
             features_losses += features_loss.item()
@@ -303,7 +287,7 @@ def train_generator(task, generator_params):
             best_loss = g_losses
             patience_counter = 0
             model_checkpoint = {
-                "model": generator.state_dict(),
+                "model": cfg["generator"].state_dict(),
                 "replay_tasks": task,
                 "batch_size": cfg["gen_batch_size"],
             }
@@ -317,17 +301,17 @@ def train_generator(task, generator_params):
             break
 
 
-def validate_classifier():
+def validate_classifier(cfg):
 
     trained_tasks = {}
 
     if cfg["classifier_checkpoint_path"].is_file():
         model_checkpoint = torch.load(cfg["classifier_model_file"])
-        classifier.load_state_dict(model_checkpoint["model"])
+        cfg["classifier"].load_state_dict(model_checkpoint["model"])
         trained_tasks = model_checkpoint["trained_tasks"]
-        classifier.to(cfg["device"])
+        cfg["classifier"].to(cfg["device"])
 
-    classifier.eval()
+    cfg["classifier"].eval()
 
     mlflow.log_param("validation task", trained_tasks)
 
@@ -336,47 +320,98 @@ def validate_classifier():
 
     for task_id, task_probability in trained_tasks.items():
 
-        dataset = TrainDatasetUnbalanced(
-            cfg, {task_id: task_probability}, dataset=cfg["image_dataset"]
-        )
+        dataset = TrainDatasetPartial(cfg, task_id, dataset=cfg["image_dataset"])
 
         dataloader = DataLoader(dataset, batch_size=cfg["val_batch_size"])
 
         total = len(dataset)
         overall_total += total
 
-        valid_loss = 0
+        val_loss = 0
         correct = 0
 
         with torch.no_grad():
             for imgs, labels in dataloader:
 
                 imgs, labels = imgs.to(cfg["device"]), labels.to(cfg["device"])
-                output, _ = classifier(imgs)
+                output, _ = cfg["classifier"](imgs)
 
-                valid_loss += F.cross_entropy(output, labels).item()
+                val_loss += F.cross_entropy(output, labels).item()
                 max_indices = output.max(1)[1]
                 correct += (max_indices == labels).sum().detach().item()
 
-                valid_loss /= total / cfg["val_batch_size"]
+                val_loss /= total / cfg["val_batch_size"]
 
         overall_correct += correct
 
-        mlflow.log_metric("loss task id " + str(task_id), valid_loss)
-        mlflow.log_metric("accuracy task id " + str(task_id), 100.0 * correct / total)
+        mlflow.log_metric("val loss task id " + str(task_id), val_loss)
+        mlflow.log_metric(
+            "val accuracy task id " + str(task_id), 100.0 * correct / total
+        )
 
-    mlflow.log_metric("overall accuracy", 100.0 * overall_correct / overall_total)
+    mlflow.log_metric("val overall accuracy", 100.0 * overall_correct / overall_total)
+
+
+def test_classifier(cfg):
+
+    trained_tasks = {}
+
+    if cfg["classifier_checkpoint_path"].is_file():
+        model_checkpoint = torch.load(cfg["classifier_model_file"])
+        cfg["classifier"].load_state_dict(model_checkpoint["model"])
+        trained_tasks = model_checkpoint["trained_tasks"]
+        cfg["classifier"].to(cfg["device"])
+
+    cfg["classifier"].eval()
+
+    mlflow.log_param("test task", trained_tasks)
+
+    overall_correct = 0
+    overall_total = 0
+
+    for task_id, task_probability in trained_tasks.items():
+
+        dataset = TestDatasetPartial(cfg, task_id, dataset=cfg["image_dataset"])
+
+        dataloader = DataLoader(dataset, batch_size=cfg["val_batch_size"])
+
+        total = len(dataset)
+        overall_total += total
+
+        test_loss = 0
+        correct = 0
+
+        with torch.no_grad():
+            for imgs, labels in dataloader:
+
+                imgs, labels = imgs.to(cfg["device"]), labels.to(cfg["device"])
+                output, _ = cfg["classifier"](imgs)
+
+                test_loss += F.cross_entropy(output, labels).item()
+                max_indices = output.max(1)[1]
+                correct += (max_indices == labels).sum().detach().item()
+
+                test_loss /= total / cfg["val_batch_size"]
+
+        overall_correct += correct
+
+        mlflow.log_metric("test loss task id " + str(task_id), test_loss)
+        mlflow.log_metric(
+            "test accuracy task id " + str(task_id), 100.0 * correct / total
+        )
+
+    mlflow.log_metric("test overall accuracy", 100.0 * overall_correct / overall_total)
 
 
 def save_features(cfg):
 
     if cfg["classifier_checkpoint_path"].is_file():
         model_checkpoint = torch.load(cfg["classifier_model_file"])
-        classifier.load_state_dict(model_checkpoint["model"])
+        cfg["classifier"].load_state_dict(model_checkpoint["model"])
         trained_tasks = model_checkpoint["trained_tasks"]
-        classifier.to(cfg["device"])
+        cfg["classifier"].to(cfg["device"])
 
-    classifier.eval()
+    cfg["classifier"].eval()
 
     dataset = TrainDatasetUnbalanced(cfg, trained_tasks, dataset=cfg["image_dataset"])
     dataloader = DataLoader(dataset, batch_size=cfg["val_batch_size"], shuffle=True)
@@ -388,7 +423,7 @@ def save_features(cfg):
         for imgs, labels in dataloader:
 
             imgs, labels = imgs.to(cfg["device"]), labels.to(cfg["device"])
-            _, h = classifier(imgs)
+            _, h = cfg["classifier"](imgs)
 
             if features is None:
                 features = h.detach().cpu()
