@@ -29,6 +29,7 @@ classifier_model_file: "saved_models/classifier.pth"
 
 max_epochs: 2500
 max_loss: "inf"
+total_tasks: 3
 
 features_file: "data/features.pt"
 

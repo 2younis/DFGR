@@ -4,8 +4,11 @@ from torch import nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
-from dataset.dataset import (TestDatasetPartial, TrainDatasetPartial,
-                             TrainDatasetUnbalanced)
+from dataset.dataset import (
+    TestDatasetPartial,
+    TrainDatasetPartial,
+    TrainDatasetUnbalanced,
+)
 from utils.loss import focal_loss, js_divergence, merge_gaussians
 
 
@@ -64,7 +67,6 @@ def train_classifier(cfg, task, adjust_replay):
         replay_epoch_losses = None
         replay_labels = None
         for imgs, labels in dataloader:
-
             imgs, labels = imgs.to(cfg["device"]), labels.to(cfg["device"])
 
             cfg["cl_optimizer"].zero_grad()
@@ -105,7 +107,6 @@ def train_classifier(cfg, task, adjust_replay):
                 replay_losses += replay_loss.item()
 
             else:
-
                 loss = real_loss
 
             loss.backward()
@@ -140,6 +141,7 @@ def train_classifier(cfg, task, adjust_replay):
             patience_counter += 1
 
         mlflow.log_metric("Best loss", best_loss, step=epoch)
+        mlflow.log_metric("Patience Counter", patience_counter, step=epoch)
 
         if patience_counter >= cfg["cl_max_patience"]:
             break
@@ -148,7 +150,6 @@ def train_classifier(cfg, task, adjust_replay):
 
 
 def train_generator(cfg, task, generator_params):
-
     delta, alpha, beta, gamma = generator_params
 
     replay_tasks = {}
@@ -217,7 +218,6 @@ def train_generator(cfg, task, generator_params):
         cfg["classifier"].eval()
 
         for _ in range(gen_batches):
-
             cfg["g_optimizer"].zero_grad()
 
             fakes, labels = cfg["generator"].generate(cfg["gen_batch_size"], task)
@@ -296,13 +296,13 @@ def train_generator(cfg, task, generator_params):
             patience_counter += 1
 
         mlflow.log_metric("Best loss", best_loss, step=epoch)
+        mlflow.log_metric("Patience Counter", patience_counter, step=epoch)
 
         if patience_counter >= cfg["gen_max_patience"]:
             break
 
 
 def validate_classifier(cfg):
-
     trained_tasks = {}
 
     if cfg["classifier_checkpoint_path"].is_file():
@@ -319,9 +319,7 @@ def validate_classifier(cfg):
     overall_total = 0
 
     for task_id, task_probability in trained_tasks.items():
-
         dataset = TrainDatasetPartial(cfg, task_id, dataset=cfg["image_dataset"])
-
         dataloader = DataLoader(dataset, batch_size=cfg["val_batch_size"])
 
         total = len(dataset)
@@ -332,7 +330,6 @@ def validate_classifier(cfg):
 
         with torch.no_grad():
             for imgs, labels in dataloader:
-
                 imgs, labels = imgs.to(cfg["device"]), labels.to(cfg["device"])
                 output, _ = cfg["classifier"](imgs)
 
@@ -353,7 +350,6 @@ def validate_classifier(cfg):
 
 
 def test_classifier(cfg):
-
     trained_tasks = {}
 
     if cfg["classifier_checkpoint_path"].is_file():
@@ -370,9 +366,7 @@ def test_classifier(cfg):
     overall_total = 0
 
     for task_id, task_probability in trained_tasks.items():
-
         dataset = TestDatasetPartial(cfg, task_id, dataset=cfg["image_dataset"])
-
         dataloader = DataLoader(dataset, batch_size=cfg["val_batch_size"])
 
         total = len(dataset)
@@ -404,7 +398,6 @@ def test_classifier(cfg):
 
 
 def save_features(cfg):
-
     if cfg["classifier_checkpoint_path"].is_file():
         model_checkpoint = torch.load(cfg["classifier_model_file"])
         cfg["classifier"].load_state_dict(model_checkpoint["model"])
@@ -421,7 +414,6 @@ def save_features(cfg):
 
     with torch.no_grad():
         for imgs, labels in dataloader:
-
             imgs, labels = imgs.to(cfg["device"]), labels.to(cfg["device"])
             _, h = cfg["classifier"](imgs)
 
@@ -445,7 +437,6 @@ def save_features(cfg):
     var = torch.empty((len(clss), features.shape[1]))
 
     for a in range(len(bin_count) - 1):
-
         mean[a] = torch.mean(
             features[indices[bin_count_cum[a] : bin_count_cum[a + 1]]], dim=0
         )
@@ -459,7 +450,6 @@ def save_features(cfg):
 
 
 def adjust_replay_probabilities(loss, labels, p):
-
     replay_labels = list(set(labels.tolist()))
 
     if p is None:
@@ -469,9 +459,7 @@ def adjust_replay_probabilities(loss, labels, p):
 
     _, indices = torch.sort(labels)
     bin_count = torch.bincount(labels).tolist()
-
     bin_count = [i for i in bin_count if i != 0]
-
     bin_count.insert(0, 0)
     bin_count_cum = cumulative(bin_count)
 
@@ -479,10 +467,8 @@ def adjust_replay_probabilities(loss, labels, p):
         torch.mean(loss[indices[bin_count_cum[a] : bin_count_cum[a + 1]]]).item()
         for a in range(len(bin_count) - 1)
     ]
-
     normalized_avg_losses = [a / bin_count[i + 1] for i, a in enumerate(avg_losses)]
 
-    mean_p = sum(p) / len(p)
     p = [(x * y) for x, y in zip(p, normalized_avg_losses)]
     mean_p = sum(p) / len(p)
     p = [a + mean_p for a in p]
