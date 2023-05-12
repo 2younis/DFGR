@@ -28,6 +28,13 @@ def cfg(path):
                 if delta == 1 or alpha == 1 or beta == 1
             ]
 
+            config["class_loss"] = torch.zeros(
+                [1], dtype=torch.float, device=config["device"]
+            )
+            config["features_loss"] = config["class_loss"].clone()
+            config["batchmorm_loss"] = config["class_loss"].clone()
+            config["div_loss"] = config["class_loss"].clone()
+
             config["num_div_samples"] = config["gen_batch_size"] // 3
         except yaml.YAMLError as exception:
             print(exception)

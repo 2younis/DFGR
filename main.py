@@ -19,14 +19,14 @@ cfg = config.cfg("configs/config.yaml")
 cfg["generator"] = Generator(cfg).to(cfg["device"])
 cfg["g_optimizer"] = torch.optim.Adam(
     cfg["generator"].parameters(),
-    lr=cfg["gen_optimizer_lr"],
+    lr=cfg["optimizer_lr"],
     betas=(cfg["gen_optimizer_beta_1"], cfg["optimizer_beta_2"]),
 )
 
 cfg["classifier"] = Classifier(cfg).to(cfg["device"])
 cfg["cl_optimizer"] = torch.optim.Adam(
     cfg["classifier"].parameters(),
-    lr=cfg["cl_optimizer_lr"],
+    lr=cfg["optimizer_lr"],
     betas=(cfg["cl_optimizer_beta_1"], cfg["optimizer_beta_2"]),
 )
 

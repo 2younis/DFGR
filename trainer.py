@@ -207,6 +207,11 @@ def train_generator(cfg, task, generator_params):
     dataset_len = len(task) * cfg["images_per_task"]
     gen_batches = int(dataset_len / cfg["gen_batch_size"])
 
+    class_loss = cfg["class_loss"]
+    features_loss = cfg["features_loss"]
+    batchmorm_loss = cfg["batchmorm_loss"]
+    div_loss = cfg["div_loss"]
+
     for epoch in range(cfg["max_epochs"]):
         div_losses = 0
         features_losses = 0
