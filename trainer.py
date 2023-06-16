@@ -47,7 +47,7 @@ def train_classifier(cfg, task, adjust_replay):
     else:
         mix_ratio = len(replay_tasks) / (len(replay_tasks) + len(task))
 
-    dataset = TrainDatasetUnbalanced(cfg, task, dataset=cfg["image_dataset"])
+    dataset = TrainDatasetUnbalanced(cfg, task, dataset=cfg["dataset"])
 
     dataloader = DataLoader(
         dataset, batch_size=cfg["cl_batch_size"], shuffle=True, drop_last=True
@@ -324,7 +324,7 @@ def validate_classifier(cfg):
     overall_total = 0
 
     for task_id, task_probability in trained_tasks.items():
-        dataset = TrainDatasetPartial(cfg, task_id, dataset=cfg["image_dataset"])
+        dataset = TrainDatasetPartial(cfg, task_id, dataset=cfg["dataset"])
         dataloader = DataLoader(dataset, batch_size=cfg["val_batch_size"])
 
         total = len(dataset)
@@ -371,7 +371,7 @@ def test_classifier(cfg):
     overall_total = 0
 
     for task_id, task_probability in trained_tasks.items():
-        dataset = TestDatasetPartial(cfg, task_id, dataset=cfg["image_dataset"])
+        dataset = TestDatasetPartial(cfg, task_id, dataset=cfg["dataset"])
         dataloader = DataLoader(dataset, batch_size=cfg["val_batch_size"])
 
         total = len(dataset)
@@ -411,7 +411,7 @@ def save_features(cfg):
 
     cfg["classifier"].eval()
 
-    dataset = TrainDatasetUnbalanced(cfg, trained_tasks, dataset=cfg["image_dataset"])
+    dataset = TrainDatasetUnbalanced(cfg, trained_tasks, dataset=cfg["dataset"])
     dataloader = DataLoader(dataset, batch_size=cfg["val_batch_size"], shuffle=True)
 
     features = None

@@ -19,13 +19,10 @@ def cfg(path):
             config["classifier_checkpoint_path"] = Path(config["classifier_model_file"])
 
             config["training_params"] = [
-                ((delta, alpha, beta, gamma), adjust_replay)
-                for delta in config["delta"]
-                for alpha in config["alpha"]
-                for beta in config["beta"]
-                for gamma in config["gamma"]
+                ((config["delta"], alpha, config["beta"], gamma), adjust_replay)
                 for adjust_replay in config["adjust_replay"]
-                if delta == 1 or alpha == 1 or beta == 1
+                for alpha in config["alpha"]
+                for gamma in config["gamma"]
             ]
 
             config["class_loss"] = torch.zeros(
@@ -48,3 +45,5 @@ if __name__ == "__main__":
 
     config = cfg("config.yaml")
     pprint.pprint(config, sort_dicts=False)
+
+    print("training params comination", len(config["training_params"]))

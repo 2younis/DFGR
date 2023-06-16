@@ -63,9 +63,13 @@ def save_fashionmnist():
     print("Save complete.")
 
 
-if __name__ == "__main__":
-
+def create_dataset():
     os.makedirs("data", exist_ok=True)
 
     init_mnist()
     init_fashionmnist()
+
+
+if __name__ == "__main__":
+
+    create_dataset()
