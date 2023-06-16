@@ -1,1 +1,1 @@
-# Data Free Generative Replay for Imbalanced Dataset
+# Data-Free Class-Incremental Learning on Imbalanced Data using Generative Replay
