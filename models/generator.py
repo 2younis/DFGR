@@ -76,14 +76,13 @@ class Generator(nn.Module):
 
         self.weights_init()
 
-    def weights_init(self):        
+    def weights_init(self):
         for module in self.modules():
             if isinstance(module, (nn.Conv2d, nn.Embedding, nn.Linear)):
                 nn.init.orthogonal_(module.weight)
-        
 
     def generate(
-        self, batch_size=None, classes=None, labels=None, trunc=1.0, probabilities=None
+        self, classes, batch_size=32, labels=None, trunc=None, probabilities=None
     ):
 
         if labels is None:
@@ -91,14 +90,14 @@ class Generator(nn.Module):
                 self.rng.choice(list(classes.keys()), size=batch_size, p=probabilities)
             )
 
-        truncated_z = truncnorm.rvs(-trunc, trunc, size=(len(labels), self.z_dim))
-        truncated_z = torch.Tensor(truncated_z).to(self.device)
+        if trunc is None:
+            rand_z = torch.randn((batch_size, self.z_dim), device=self.device)
+        else:
+            truncated_z = truncnorm.rvs(-trunc, trunc, size=(batch_size, self.z_dim))
+            rand_z = torch.Tensor(truncated_z).to(self.device)
 
         labels_emb = self.shared_emb(labels.to(self.device))
-        fakes = self.forward(truncated_z, labels_emb)
-
-        if batch_size is None:
-            return fakes
+        fakes = self.forward(rand_z, labels_emb)
 
         return fakes, labels
 

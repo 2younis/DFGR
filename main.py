@@ -7,13 +7,13 @@ import torch
 from configs import config
 from models.classifier import Classifier
 from models.generator import Generator
-from utils.prepare_dataset import create_dataset
 from trainer import (
     test_classifier,
     train_classifier,
     train_generator,
     validate_classifier,
 )
+from utils.prepare_dataset import create_dataset
 
 cfg = config.cfg("configs/config.yaml")
 

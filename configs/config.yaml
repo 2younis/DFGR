@@ -43,10 +43,13 @@ gen_batch_size: 128
 gen_max_patience: 75
 
 images_per_task: 6000
+
+smoothing_kernel_size: 3
  
 alpha: [1.0, 0.0]
-gamma: [1.0, 0.0]
-delta: 1.0
+delta: [1.0, 0.0]
+epsilon: 1.0
+gamma: 1.0
 beta: 1.0
 
 # Classifier Training

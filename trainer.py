@@ -1,22 +1,19 @@
 import mlflow
 import torch
-from torch import nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
-
 from dataset.dataset import (
     TestDatasetPartial,
     TrainDatasetPartial,
     TrainDatasetUnbalanced,
 )
-from utils.loss import focal_loss, js_divergence, merge_gaussians
+from torch import nn
+from torch.utils.data import DataLoader
+from utils.loss import Gaussiansmoothing, focal_loss, js_divergence, merge_gaussians
 
 
 def cumulative(lists):
-    cu_list = []
-    length = len(lists)
-    cu_list = [sum(lists[0:x:1]) for x in range(0, length + 1)]
-    return cu_list[1:]
+
+    return [sum(lists[0:x:1]) for x in range(1, len(lists) + 1)]
 
 
 def train_classifier(cfg, task, adjust_replay):
@@ -77,8 +74,8 @@ def train_classifier(cfg, task, adjust_replay):
             if mix_ratio > 0:
                 with torch.no_grad():
                     gen_imgs, gen_labels = cfg["generator"].generate(
-                        cfg["cl_batch_size"],
                         replay_tasks,
+                        cfg["cl_batch_size"],
                         trunc=cfg["truncation"],
                         probabilities=probabilities,
                     )
@@ -150,7 +147,7 @@ def train_classifier(cfg, task, adjust_replay):
 
 
 def train_generator(cfg, task, generator_params):
-    delta, alpha, beta, gamma = generator_params
+    delta, alpha, beta, gamma, epsilon = generator_params
 
     replay_tasks = {}
 
@@ -174,9 +171,14 @@ def train_generator(cfg, task, generator_params):
     mlflow.log_param("alpha", alpha)
     mlflow.log_param("beta", beta)
     mlflow.log_param("gamma", gamma)
+    mlflow.log_param("epsilon", epsilon)
 
     cfg["classifier"].eval()
     cfg["classifier"].register_hooks()
+
+    smoothing = Gaussiansmoothing(
+        channels=cfg["img_channels"], kernel_size=cfg["smoothing_kernel_size"]
+    )
 
     best_loss = float(cfg["max_loss"])
     patience_counter = 0
@@ -211,12 +213,14 @@ def train_generator(cfg, task, generator_params):
     features_loss = cfg["features_loss"]
     batchmorm_loss = cfg["batchmorm_loss"]
     div_loss = cfg["div_loss"]
+    smoothing_loss = cfg["smoothing_loss"]
 
     for epoch in range(cfg["max_epochs"]):
         div_losses = 0
         features_losses = 0
         batchmorm_losses = 0
         class_losses = 0
+        smoothing_losses = 0
         g_losses = 0
 
         cfg["generator"].train()
@@ -225,7 +229,7 @@ def train_generator(cfg, task, generator_params):
         for _ in range(gen_batches):
             cfg["g_optimizer"].zero_grad()
 
-            fakes, labels = cfg["generator"].generate(cfg["gen_batch_size"], task)
+            fakes, labels = cfg["generator"].generate(task, cfg["gen_batch_size"])
             fakes, labels = fakes.to(cfg["device"]), labels.to(cfg["device"])
 
             output_fake, fake_h = cfg["classifier"](fakes)
@@ -233,12 +237,16 @@ def train_generator(cfg, task, generator_params):
             if delta > 0:
                 class_loss = F.cross_entropy(output_fake, labels)
 
-            if alpha > 0:
-                sigma_1, mu1 = merge_gaussians(features_dict, labels)
-                sigma_2, mu2 = torch.var_mean(fake_h, dim=0, unbiased=False)
+            if epsilon > 0:
+                fakes_smoothed = smoothing(F.pad(fakes, (1, 1, 1, 1), mode="reflect"))
+                smoothing_loss = F.mse_loss(fakes, fakes_smoothed)
 
-                features_loss = torch.norm(mu1.to(cfg["device"]) - mu2) + torch.norm(
-                    sigma_1.to(cfg["device"]) - sigma_2
+            if alpha > 0:
+                sigma_1, mu1 = torch.var_mean(fake_h, dim=0, unbiased=False)
+                sigma_2, mu2 = merge_gaussians(features_dict, labels)
+
+                features_loss = torch.norm(mu1 - mu2.to(cfg["device"])) + torch.norm(
+                    sigma_1 - sigma_2.to(cfg["device"])
                 )
 
             if beta > 0:
@@ -253,8 +261,8 @@ def train_generator(cfg, task, generator_params):
                             batch_means = torch.cat([batch_means, hook.mean], dim=0)
                             batch_vars = torch.cat([batch_vars, hook.var], dim=0)
 
-                batchmorm_loss = torch.norm(batchnorm_means - batch_means) + torch.norm(
-                    batchnorm_vars - batch_vars
+                batchmorm_loss = torch.norm(batch_means - batchnorm_means) + torch.norm(
+                    batch_vars - batchnorm_vars
                 )
 
             if gamma > 0:
@@ -265,6 +273,7 @@ def train_generator(cfg, task, generator_params):
                 + (alpha * features_loss)
                 + (beta * batchmorm_loss)
                 + (gamma * div_loss)
+                + (epsilon * smoothing_loss)
             )
 
             g_loss.backward()
@@ -274,18 +283,21 @@ def train_generator(cfg, task, generator_params):
             features_losses += features_loss.item()
             batchmorm_losses += batchmorm_loss.item()
             div_losses += div_loss.item()
+            smoothing_losses += smoothing_loss.item()
             g_losses += g_loss.item()
 
         div_losses /= dataset_len / cfg["gen_batch_size"]
         class_losses /= dataset_len / cfg["gen_batch_size"]
         features_losses /= dataset_len / cfg["gen_batch_size"]
         batchmorm_losses /= dataset_len / cfg["gen_batch_size"]
+        smoothing_losses /= dataset_len / cfg["gen_batch_size"]
         g_losses /= dataset_len / cfg["gen_batch_size"]
 
         mlflow.log_metric("divergence loss", div_losses, step=epoch)
         mlflow.log_metric("classification loss", class_losses, step=epoch)
         mlflow.log_metric("features loss", features_losses, step=epoch)
         mlflow.log_metric("batchmorm loss", batchmorm_losses, step=epoch)
+        mlflow.log_metric("smoothing losses", smoothing_losses, step=epoch)
         mlflow.log_metric("Total loss", g_losses, step=epoch)
 
         if g_losses < best_loss:
@@ -458,8 +470,7 @@ def adjust_replay_probabilities(loss, labels, p):
     replay_labels = list(set(labels.tolist()))
 
     if p is None:
-        len_labels = len(replay_labels)
-        p = [1.0 / len_labels] * len_labels
+        p = [1.0 / len_labels] * len(replay_labels)
         return p
 
     _, indices = torch.sort(labels)
