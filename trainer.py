@@ -470,7 +470,8 @@ def adjust_replay_probabilities(loss, labels, p):
     replay_labels = list(set(labels.tolist()))
 
     if p is None:
-        p = [1.0 / len_labels] * len(replay_labels)
+        len_labels = len(replay_labels)
+        p = [1.0 / len_labels] * len_labels
         return p
 
     _, indices = torch.sort(labels)
