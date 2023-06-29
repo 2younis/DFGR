@@ -109,22 +109,8 @@ def merge_gaussians(features_dict, labels):
     return sigma, mu
 
 
-def focal_loss(cfg, outputs, targets, gamma=2.0):
-
-    bin_count = torch.bincount(targets)
-    freq = bin_count / sum(bin_count)
-
-    weight = torch.div(1, freq)
-    weight[weight == float("inf")] = 10.0
-
-    weight = torch.cat(
-        (
-            weight,
-            10.0 * torch.ones(cfg["num_classes"] - len(weight), device=cfg["device"]),
-        )
-    )
-
-    ce_loss = F.cross_entropy(outputs, targets, weight=weight, reduction="none")
+def focal_loss(logits, targets, gamma=2.0):
+    ce_loss = F.cross_entropy(logits, targets, reduction="none")
     pt = torch.exp(-ce_loss)
     loss = (((1 - pt) ** gamma) * ce_loss).mean()
 
