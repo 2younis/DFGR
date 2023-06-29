@@ -115,3 +115,15 @@ def focal_loss(logits, targets, gamma=2.0):
     loss = (((1 - pt) ** gamma) * ce_loss).mean()
 
     return loss
+
+
+# https://github.com/jiawei-ren/BalancedMetaSoftmax-Classification/blob/main/loss/BalancedSoftmaxLoss.py
+def balanced_softmax_loss(logits, targets):
+    sample_per_class = torch.bincount(targets)
+    spc = sample_per_class.type_as(logits)
+
+    spc = spc.unsqueeze(0).expand(logits.shape[0], -1)
+    logits = logits + spc.log()
+    loss = F.cross_entropy(input=logits, target=targets)
+
+    return loss

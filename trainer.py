@@ -8,7 +8,13 @@ from dataset.dataset import (
 )
 from torch import nn
 from torch.utils.data import DataLoader
-from utils.loss import Gaussiansmoothing, focal_loss, js_divergence, merge_gaussians
+from utils.loss import (
+    Gaussiansmoothing,
+    js_divergence,
+    merge_gaussians,
+    focal_loss,
+    balanced_softmax_loss,
+)
 
 
 def cumulative(lists):
@@ -69,7 +75,7 @@ def train_classifier(cfg, task, adjust_replay):
             cfg["cl_optimizer"].zero_grad()
             output, _ = cfg["classifier"](imgs)
 
-            real_loss = focal_loss(output, labels)
+            real_loss = balanced_softmax_loss(output, labels)
 
             if mix_ratio > 0:
                 with torch.no_grad():
