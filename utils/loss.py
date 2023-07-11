@@ -93,6 +93,7 @@ def js_divergence(imgs, num_samples):
     return js_div
 
 
+# https://math.stackexchange.com/q/453794
 def merge_gaussians(features_dict, labels):
     means = features_dict["mean"]
     var = features_dict["var"]
@@ -103,8 +104,10 @@ def merge_gaussians(features_dict, labels):
     mu = sum(means[i] * count for i, count in enumerate(bin_count)) / sum(bin_count)
 
     sigma = sum(
-        (count * (var[i] + ((means[i] - mu) ** 2))) for i, count in enumerate(bin_count)
+        (count * (var[i] + (means[i] ** 2))) for i, count in enumerate(bin_count)
     ) / sum(bin_count)
+
+    sigma -= mu**2
 
     return sigma, mu
 
@@ -113,17 +116,5 @@ def focal_loss(logits, targets, gamma=2.0):
     ce_loss = F.cross_entropy(logits, targets, reduction="none")
     pt = torch.exp(-ce_loss)
     loss = (((1 - pt) ** gamma) * ce_loss).mean()
-
-    return loss
-
-
-# https://github.com/jiawei-ren/BalancedMetaSoftmax-Classification/blob/main/loss/BalancedSoftmaxLoss.py
-def balanced_softmax_loss(logits, targets):
-    sample_per_class = torch.bincount(targets)
-    spc = sample_per_class.type_as(logits)
-
-    spc = spc.unsqueeze(0).expand(logits.shape[0], -1)
-    logits = logits + spc.log()
-    loss = F.cross_entropy(input=logits, target=targets)
 
     return loss

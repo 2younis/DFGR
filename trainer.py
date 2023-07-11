@@ -13,7 +13,6 @@ from utils.loss import (
     js_divergence,
     merge_gaussians,
     focal_loss,
-    balanced_softmax_loss,
 )
 
 
@@ -75,7 +74,7 @@ def train_classifier(cfg, task, adjust_replay):
             cfg["cl_optimizer"].zero_grad()
             output, _ = cfg["classifier"](imgs)
 
-            real_loss = balanced_softmax_loss(output, labels)
+            real_loss = focal_loss(output, labels)
 
             if mix_ratio > 0:
                 with torch.no_grad():
