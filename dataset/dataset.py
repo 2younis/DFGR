@@ -79,7 +79,7 @@ class TrainDatasetUnbalanced(Dataset):
 
         if self.dataset == "mnist":
             x_train, t_train, _, _ = load_mnist(cfg)
-        elif self.dataset == "fashion":
+        elif self.dataset == "fashionmnist":
             x_train, t_train, _, _ = load_fashionmnist(cfg)
         else:
             print(f"Dataset {self.dataset} not available!")
@@ -115,7 +115,7 @@ class TrainDatasetPartial(Dataset):
 
         if self.dataset == "mnist":
             x_train, t_train, _, _ = load_mnist(cfg)
-        elif self.dataset == "fashion":
+        elif self.dataset == "fashionmnist":
             x_train, t_train, _, _ = load_fashionmnist(cfg)
         else:
             print(f"Dataset {self.dataset} not available!")
@@ -147,7 +147,7 @@ class TestDatasetPartial(Dataset):
 
         if self.dataset == "mnist":
             _, _, x_test, t_test = load_mnist(cfg)
-        elif self.dataset == "fashion":
+        elif self.dataset == "fashionmnist":
             _, _, x_test, t_test = load_fashionmnist(cfg)
         else:
             print(f"Dataset {self.dataset} not available!")
