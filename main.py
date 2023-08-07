@@ -10,6 +10,7 @@ from models.generator import Generator
 from trainer import (
     test_classifier,
     train_classifier,
+    train_classifier_ewc,
     train_generator,
     validate_classifier,
 )
@@ -66,9 +67,36 @@ def train_cl(image_dataset):
             shutil.rmtree("saved_models/")
 
 
+def train_ewc(image_dataset):
+
+    cfg["dataset"] = image_dataset
+
+    for scenario_name, scenario_tasks in cfg["scenarios"].items():
+        tasks = copy.deepcopy(scenario_tasks)
+
+        cfg["generator"].weights_init()
+        cfg["classifier"].weights_init()
+
+        os.makedirs("saved_models", exist_ok=True)
+        mlflow.set_experiment(f"EWC {scenario_name} {image_dataset}")
+
+        for task_no, cl_task in enumerate(tasks):
+            with mlflow.start_run():
+                mlflow.log_param("task_no", task_no)
+                mlflow.log_param("task", cl_task)
+                train_classifier_ewc(cfg, cl_task)
+
+            with mlflow.start_run():
+                validate_classifier(cfg)
+                test_classifier(cfg)
+
+        shutil.rmtree("saved_models/")
+
+
 if __name__ == "__main__":
 
     create_dataset()
 
     for image_dataset in cfg["image_datasets"]:
         train_cl(image_dataset)
+        train_ewc(image_dataset)
