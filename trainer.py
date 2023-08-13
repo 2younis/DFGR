@@ -6,17 +6,13 @@ import torch.nn.functional as F
 from torch import nn
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
+import utils.loss as ls
+import utils.utils as utl
 from dataset.dataset import (
     TestDatasetPartial,
     TrainDatasetPartial,
     TrainDatasetUnbalanced,
 )
-from utils.loss import Gaussiansmoothing, focal_loss, js_divergence, merge_gaussians
-
-
-def cumulative(lists):
-
-    return [sum(lists[0:x:1]) for x in range(1, len(lists) + 1)]
 
 
 def train_classifier_ewc(cfg, task):
@@ -41,7 +37,7 @@ def train_classifier_ewc(cfg, task):
             n: p for n, p in cfg["classifier"].named_parameters() if p.requires_grad
         }
 
-        fisher_matrix = get_fisher_diag(cfg, trained_tasks, params)
+        fisher_matrix = utl.get_fisher_diag(cfg, trained_tasks, params)
 
         param_old = {}
         for n, p in deepcopy(params).items():
@@ -117,7 +113,115 @@ def train_classifier_ewc(cfg, task):
         if patience_counter >= cfg["cl_max_patience"]:
             break
 
-    save_features(cfg)
+
+def train_classifier_lwf(cfg, task):
+
+    trained_tasks = {}
+    previous_model = None
+
+    if cfg["classifier_checkpoint_path"].is_file():
+        model_checkpoint = torch.load(cfg["classifier_model_file"])
+        cfg["classifier"].load_state_dict(model_checkpoint["model"])
+        trained_tasks = model_checkpoint["trained_tasks"]
+        cfg["classifier"].to(cfg["device"])
+
+        previous_model = deepcopy(cfg["classifier"])
+        previous_model.to(cfg["device"])
+
+    best_loss = float(cfg["max_loss"])
+    patience_counter = 0
+
+    lwf_alpha = 0.1
+    temperature = 2.0
+
+    torch.set_printoptions(profile="full")
+
+    if trained_tasks:
+
+        weight = cfg["classifier"].fc.weight.data.clone()
+        bias = cfg["classifier"].fc.bias.data.clone()
+
+        nn.init.xavier_uniform_(cfg["classifier"].fc.weight)
+        cfg["classifier"].fc.bias.data.fill_(0)
+
+        utl.apply_prunning(cfg, task, trained_tasks)
+
+        for classe in range(cfg["num_classes"]):
+            if classe in trained_tasks:
+                cfg["classifier"].fc.weight.data[classe] = weight[classe]
+                cfg["classifier"].fc.bias.data[classe] = bias[classe]
+
+    cfg["classifier"].train()
+
+    dataset = TrainDatasetUnbalanced(cfg, task, dataset=cfg["dataset"])
+
+    dataloader = DataLoader(
+        dataset, batch_size=cfg["cl_batch_size"], shuffle=True, drop_last=True
+    )
+
+    mlflow.log_param("classifier trained tasks", trained_tasks)
+    mlflow.log_param("lwf_alpha", lwf_alpha)
+    mlflow.log_param("temperature", temperature)
+
+    dataset_len = len(dataset)
+
+    for epoch in range(cfg["max_epochs"]):
+        orginal_losses = 0
+        dist_losses = 0
+        train_losses = 0
+
+        for imgs, labels in dataloader:
+            imgs, labels = imgs.to(cfg["device"]), labels.to(cfg["device"])
+
+            utl.apply_prunning(cfg, task, trained_tasks)
+
+            cfg["cl_optimizer"].zero_grad()
+            output, _ = cfg["classifier"](imgs)
+
+            orginal_loss = F.cross_entropy(output, labels)
+
+            if trained_tasks:
+                previous_output, _ = previous_model(imgs)
+
+                dist_loss = ls.distillation_loss(output, previous_output, temperature)
+
+                train_loss = orginal_loss + (lwf_alpha * dist_loss)
+                dist_losses += dist_loss.item()
+
+            else:
+                train_loss = orginal_loss
+
+            train_loss.backward()
+            cfg["cl_optimizer"].step()
+
+            orginal_losses += orginal_loss.item()
+            train_losses += train_loss.item()
+
+        orginal_losses /= dataset_len / cfg["cl_batch_size"]
+        dist_losses /= dataset_len / cfg["cl_batch_size"]
+        train_losses /= dataset_len / cfg["cl_batch_size"]
+
+        mlflow.log_metric("Total Loss", train_losses, step=epoch)
+        mlflow.log_metric("Original Loss", orginal_losses, step=epoch)
+        mlflow.log_metric("Distilation Loss", dist_losses, step=epoch)
+
+        if train_loss < best_loss:
+            best_loss = train_loss
+            patience_counter = 0
+            model_checkpoint = {
+                "model": cfg["classifier"].state_dict(),
+                "trained_tasks": task | trained_tasks,
+                "batch_size": cfg["cl_batch_size"],
+            }
+            torch.save(model_checkpoint, cfg["classifier_model_file"])
+        else:
+            patience_counter += 1
+
+        mlflow.log_metric("Best loss", best_loss, step=epoch)
+        mlflow.log_metric("Patience Counter", patience_counter, step=epoch)
+
+        if patience_counter >= cfg["cl_max_patience"]:
+            break
 
 
 def train_classifier(cfg, task, adjust_replay):
@@ -173,7 +277,7 @@ def train_classifier(cfg, task, adjust_replay):
             cfg["cl_optimizer"].zero_grad()
             output, _ = cfg["classifier"](imgs)
 
-            real_loss = focal_loss(output, labels)
+            real_loss = ls.focal_loss(output, labels)
 
             if mix_ratio > 0:
                 with torch.no_grad():
@@ -217,7 +321,7 @@ def train_classifier(cfg, task, adjust_replay):
 
         if replay_labels is not None and adjust_replay:
 
-            probabilities = adjust_replay_probabilities(
+            probabilities = utl.adjust_replay_probabilities(
                 replay_epoch_losses, replay_labels, probabilities
             )
 
@@ -247,7 +351,7 @@ def train_classifier(cfg, task, adjust_replay):
         if patience_counter >= cfg["cl_max_patience"]:
             break
 
-    save_features(cfg)
+    utl.save_features(cfg)
 
 
 def train_generator(cfg, task, generator_params):
@@ -280,7 +384,7 @@ def train_generator(cfg, task, generator_params):
     cfg["classifier"].eval()
     cfg["classifier"].register_hooks()
 
-    smoothing = Gaussiansmoothing(
+    smoothing = ls.Gaussiansmoothing(
         channels=cfg["img_channels"], kernel_size=cfg["smoothing_kernel_size"]
     )
 
@@ -347,7 +451,7 @@ def train_generator(cfg, task, generator_params):
 
             if alpha > 0:
                 sigma_1, mu1 = torch.var_mean(fake_h, dim=0, unbiased=False)
-                sigma_2, mu2 = merge_gaussians(features_dict, labels)
+                sigma_2, mu2 = ls.merge_gaussians(features_dict, labels)
 
                 features_loss = torch.norm(mu1 - mu2.to(cfg["device"])) + torch.norm(
                     sigma_1 - sigma_2.to(cfg["device"])
@@ -370,7 +474,7 @@ def train_generator(cfg, task, generator_params):
                 )
 
             if gamma > 0:
-                div_loss = -js_divergence(fakes, cfg["num_div_samples"])
+                div_loss = -ls.js_divergence(fakes, cfg["num_div_samples"])
 
             g_loss = (
                 (delta * class_loss)
@@ -516,118 +620,3 @@ def test_classifier(cfg):
         )
 
     mlflow.log_metric("test overall accuracy", 100.0 * overall_correct / overall_total)
-
-
-def save_features(cfg):
-    if cfg["classifier_checkpoint_path"].is_file():
-        model_checkpoint = torch.load(cfg["classifier_model_file"])
-        cfg["classifier"].load_state_dict(model_checkpoint["model"])
-        trained_tasks = model_checkpoint["trained_tasks"]
-        cfg["classifier"].to(cfg["device"])
-
-    cfg["classifier"].eval()
-
-    dataset = TrainDatasetUnbalanced(cfg, trained_tasks, dataset=cfg["dataset"])
-    dataloader = DataLoader(dataset, batch_size=cfg["val_batch_size"], shuffle=True)
-
-    features = None
-    classes = None
-
-    with torch.no_grad():
-        for imgs, labels in dataloader:
-            imgs, labels = imgs.to(cfg["device"]), labels.to(cfg["device"])
-            _, h = cfg["classifier"](imgs)
-
-            if features is None:
-                features = h.detach().cpu()
-                classes = labels.detach().cpu()
-            else:
-                features = torch.cat([features, h.detach().cpu()], dim=0)
-                classes = torch.cat([classes, labels.detach().cpu()], dim=0)
-
-    values, indices = torch.sort(classes)
-    bin_count = torch.bincount(classes).tolist()
-
-    bin_count = [i for i in bin_count if i != 0]
-    bin_count.insert(0, 0)
-    bin_count_cum = cumulative(bin_count)
-
-    clss = [int(classes[indices[bin_count_cum[a]]]) for a in range(len(bin_count) - 1)]
-
-    mean = torch.empty((len(clss), features.shape[1]))
-    var = torch.empty((len(clss), features.shape[1]))
-
-    for a in range(len(bin_count) - 1):
-        mean[a] = torch.mean(
-            features[indices[bin_count_cum[a] : bin_count_cum[a + 1]]], dim=0
-        )
-
-        var[a] = torch.var(
-            features[indices[bin_count_cum[a] : bin_count_cum[a + 1]]], dim=0
-        )
-
-    features_dict = {"mean": mean, "var": var, "labels": clss}
-    torch.save(features_dict, cfg["features_file"])
-
-
-def adjust_replay_probabilities(loss, labels, p):
-    replay_labels = list(set(labels.tolist()))
-
-    if p is None:
-        len_labels = len(replay_labels)
-        p = [1.0 / len_labels] * len_labels
-        return p
-
-    _, indices = torch.sort(labels)
-    bin_count = torch.bincount(labels).tolist()
-    bin_count = [i for i in bin_count if i != 0]
-    bin_count.insert(0, 0)
-    bin_count_cum = cumulative(bin_count)
-
-    avg_losses = [
-        torch.mean(loss[indices[bin_count_cum[a] : bin_count_cum[a + 1]]]).item()
-        for a in range(len(bin_count) - 1)
-    ]
-    normalized_avg_losses = [a / bin_count[i + 1] for i, a in enumerate(avg_losses)]
-
-    p = [(x * y) for x, y in zip(p, normalized_avg_losses)]
-    mean_p = sum(p) / len(p)
-    p = [a + mean_p for a in p]
-    p = [a / sum(p) for a in p]
-
-    return p
-
-
-def get_fisher_diag(cfg, trained_tasks, params):
-
-    fisher = {}
-    for n, p in deepcopy(params).items():
-        p.data.zero_()
-        fisher[n] = Variable(p.data)
-
-    dataset = TrainDatasetUnbalanced(cfg, trained_tasks, dataset=cfg["dataset"])
-
-    dataloader = DataLoader(
-        dataset, batch_size=cfg["cl_batch_size"], shuffle=True, drop_last=False
-    )
-    dataset_len = len(dataset)
-
-    cfg["classifier"].eval()
-
-    for imgs, labels in dataloader:
-
-        imgs, labels = imgs.to(cfg["device"]), labels.to(cfg["device"])
-
-        cfg["classifier"].zero_grad()
-        output, _ = cfg["classifier"](imgs)
-
-        loss = F.cross_entropy(output, labels)
-        loss.backward()
-
-        for n, p in cfg["classifier"].named_parameters():
-
-            if p.grad is not None:
-                fisher[n].data += (p.grad.data**2) / dataset_len
-
-    fisher = {n: p for n, p in fisher.items()}
-    return fisher

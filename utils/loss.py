@@ -118,3 +118,16 @@ def focal_loss(logits, targets, gamma=2.0):
     loss = (((1 - pt) ** gamma) * ce_loss).mean()
 
     return loss
+
+
+# https://github.com/ContinualAI/avalanche/blob/master/avalanche/training/regularization.py#L61
+
+
+def distillation_loss(output, previous_output, temperature=2.0):
+
+    log_p = torch.log_softmax(output / temperature, dim=1)
+    q = torch.softmax(previous_output / temperature, dim=1)
+
+    dist_loss = F.kl_div(log_p, q, reduction="batchmean")
+
+    return dist_loss
