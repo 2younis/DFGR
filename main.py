@@ -94,6 +94,8 @@ def train_baselines(image_dataset, strategy):
                     tr.train_classifier_ewc(cfg, cl_task)
                 elif strategy == "LWF":
                     tr.train_classifier_lwf(cfg, cl_task)
+                elif strategy == "Naive":
+                    tr.train_classifier_naive(cfg, cl_task)
 
             with mlflow.start_run():
                 tr.validate_classifier(cfg)
