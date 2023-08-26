@@ -54,16 +54,37 @@ class Classifier(nn.Module):
         )
 
         self.avgpool = nn.AdaptiveAvgPool2d(1)
-
         self.fc = nn.Linear(16 * self.base_channels, self.n_classes)
 
         self.weights_init()
+        self.print_param()
 
     def weights_init(self):
 
         for module in self.modules():
             if isinstance(module, (nn.Conv2d, nn.Linear)):
                 nn.init.xavier_uniform_(module.weight)
+
+    def print_param(self):
+        params = 0
+        for module in self.modules():
+            params += sum([p.data.nelement() for p in module.parameters()])
+
+        print(
+            "Classifier's trainable parameters:  {:.0f}M {:.0f}K {:d}".format(
+                params // 1e6, (params // 1e3) % 1000, params % 1000
+            )
+        )
+
+        param_size = 0
+        for param in self.parameters():
+            param_size += param.nelement() * param.element_size()
+        buffer_size = 0
+        for buffer in self.buffers():
+            buffer_size += buffer.nelement() * buffer.element_size()
+
+        size_all_mb = (param_size + buffer_size) / 1024**2
+        print("Model Classifier's size: {:.3f}MB".format(size_all_mb))
 
     def register_hooks(self):
         self.hooks = []
