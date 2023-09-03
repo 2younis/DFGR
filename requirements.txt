@@ -1,0 +1,6 @@
+mlflow==1.30.0
+numpy==1.22.3
+PyYAML==6.0.1
+scipy==1.8.0
+torch==1.11.0
+torchvision==0.12.0
