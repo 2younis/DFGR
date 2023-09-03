@@ -4,7 +4,7 @@ import torch
 import yaml
 
 
-def cfg(path):
+def config(path):
     with open(path, "r") as file:
         try:
             config = yaml.safe_load(file)
@@ -47,7 +47,7 @@ if __name__ == "__main__":
 
     import pprint
 
-    config = cfg("config.yaml")
-    pprint.pprint(config, sort_dicts=False)
+    cfg = config("config.yaml")
+    pprint.pprint(cfg, sort_dicts=False)
 
-    print("training params combinations", len(config["training_params"]))
+    print("training params combinations", len(cfg["training_params"]))

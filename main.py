@@ -4,16 +4,16 @@ import shutil
 
 import mlflow
 import torch
-import trainer as tr
+
+from trainers import dfgr, lwf, ewc, naive
 from configs import config
-from models.classifier import Classifier
-from models.generator import Generator
-from utils.prepare_dataset import create_dataset
+from models import Classifier, Generator
+from utils import create_dataset, validate_classifier, test_classifier
 
-cfg = config.cfg("configs/config.yaml")
+cfg = config("configs/config.yaml")
 
 
-def train_dgr(image_dataset):
+def train_dfgr(image_dataset):
 
     cfg["generator"] = Generator(cfg).to(cfg["device"])
     cfg["g_optimizer"] = torch.optim.Adam(
@@ -47,16 +47,16 @@ def train_dgr(image_dataset):
                 with mlflow.start_run():
                     mlflow.log_param("task_no", task_no)
                     mlflow.log_param("task", cl_task)
-                    tr.train_classifier(cfg, cl_task, adjust_replay)
+                    dfgr.train_classifier(cfg, cl_task, adjust_replay)
 
                 with mlflow.start_run():
-                    tr.validate_classifier(cfg)
-                    tr.test_classifier(cfg)
+                    validate_classifier(cfg)
+                    test_classifier(cfg)
 
                 if task_no < (cfg["total_tasks"] - 1):
                     with mlflow.start_run():
                         mlflow.log_param("task_no", task_no)
-                        tr.train_generator(cfg, cl_task, gen_params)
+                        dfgr.train_generator(cfg, cl_task, gen_params)
 
             shutil.rmtree("saved_models/")
 
@@ -91,15 +91,15 @@ def train_baselines(image_dataset, strategy):
                 mlflow.log_param("task", cl_task)
 
                 if strategy == "EWC":
-                    tr.train_classifier_ewc(cfg, cl_task)
+                    ewc.train_classifier_ewc(cfg, cl_task)
                 elif strategy == "LWF":
-                    tr.train_classifier_lwf(cfg, cl_task)
+                    lwf.train_classifier_lwf(cfg, cl_task)
                 elif strategy == "Naive":
-                    tr.train_classifier_naive(cfg, cl_task)
+                    naive.train_classifier_naive(cfg, cl_task)
 
             with mlflow.start_run():
-                tr.validate_classifier(cfg)
-                tr.test_classifier(cfg)
+                validate_classifier(cfg)
+                test_classifier(cfg)
 
         shutil.rmtree("saved_models/")
 
@@ -112,7 +112,7 @@ if __name__ == "__main__":
     create_dataset()
 
     for image_dataset in cfg["image_datasets"]:
-        train_dgr(image_dataset)
+        train_dfgr(image_dataset)
 
         for strategy in cfg["baseline_strategies"]:
             train_baselines(image_dataset, strategy)
