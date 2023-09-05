@@ -167,7 +167,11 @@ def train_generator(cfg, task, generator_params):
     mlflow.log_param("epsilon", epsilon)
 
     cfg["classifier"].eval()
-    cfg["classifier"].register_hooks()
+
+    hooks = []
+    for module in cfg["classifier"].modules():
+        if isinstance(module, nn.BatchNorm2d):
+            hooks.append(utils.DeepInversionFeatureHook(module))
 
     smoothing = utils.Gaussiansmoothing(
         channels=cfg["img_channels"], kernel_size=cfg["smoothing_kernel_size"]
@@ -175,26 +179,6 @@ def train_generator(cfg, task, generator_params):
 
     best_loss = float(cfg["max_loss"])
     patience_counter = 0
-
-    if beta > 0:
-        batchnorm_means, batchnorm_vars = None, None
-
-        for module in cfg["classifier"].modules():
-            if isinstance(module, nn.BatchNorm2d):
-
-                if batchnorm_means is None:
-                    batchnorm_means = module.running_mean
-                    batchnorm_vars = module.running_var
-                else:
-                    batchnorm_means = torch.cat(
-                        [batchnorm_means, module.running_mean], dim=0
-                    )
-                    batchnorm_vars = torch.cat(
-                        [batchnorm_vars, module.running_var], dim=0
-                    )
-
-        batchnorm_means = batchnorm_means[cfg["img_channels"] :]
-        batchnorm_vars = batchnorm_vars[cfg["img_channels"] :]
 
     if alpha > 0:
         features_dict = torch.load(cfg["features_file"])
@@ -243,19 +227,8 @@ def train_generator(cfg, task, generator_params):
                 )
 
             if beta > 0:
-                batch_means, batch_vars = None, None
-
-                for hook in cfg["classifier"].hooks:
-                    if hook.mean is not None:
-                        if batch_means is None:
-                            batch_means = hook.mean
-                            batch_vars = hook.var
-                        else:
-                            batch_means = torch.cat([batch_means, hook.mean], dim=0)
-                            batch_vars = torch.cat([batch_vars, hook.var], dim=0)
-
-                batchmorm_loss = torch.norm(batch_means - batchnorm_means) + torch.norm(
-                    batch_vars - batchnorm_vars
+                batchmorm_loss = sum(
+                    [hook.r_feature for hook in hooks if hook.r_feature is not None]
                 )
 
             if gamma > 0:

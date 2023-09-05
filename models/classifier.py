@@ -86,11 +86,11 @@ class Classifier(nn.Module):
         size_all_mb = (param_size + buffer_size) / 1024**2
         print("Model Classifier's size: {:.3f}MB".format(size_all_mb))
 
-    def register_hooks(self):
+    def register_hooks(self, Hook):
         self.hooks = []
         for module in self.modules():
             if isinstance(module, nn.BatchNorm2d):
-                self.hooks.append(FeatureMeanVarHook(module))
+                self.hooks.append(Hook(module))
 
     def forward(self, x):
         h = self.blocks(x)
@@ -164,27 +164,3 @@ class ResidualBlock(nn.Module):
             h = self.downsample_fn(h)
 
         return h + self._residual(x)
-
-
-# https://github.com/zju-vipa/MosaicKD/blob/33e33640f1528e38070b07b1f729e9fe459b27cd/engine/hooks.py
-
-
-class FeatureMeanVarHook:
-    def __init__(self, module, on_input=True, dim=[0, 2, 3]):
-        self.hook = module.register_forward_hook(self.hook_fn)
-        self.on_input = on_input
-        self.module = module
-        self.dim = dim
-        self.var, self.mean = None, None
-
-    def hook_fn(self, module, input, output):
-        # To avoid inplace modification
-
-        if self.on_input:
-            feature = input[0].clone()
-        else:
-            feature = output.clone()
-        self.var, self.mean = torch.var_mean(feature, dim=self.dim, unbiased=True)
-
-    def remove(self):
-        self.hook.remove()
