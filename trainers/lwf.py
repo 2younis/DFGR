@@ -28,7 +28,7 @@ def train_classifier_lwf(cfg, task):
     best_loss = float(cfg["max_loss"])
     patience_counter = 0
 
-    lwf_alpha = 0.1
+    lwf_alpha = 1.0
     temperature = 2.0
 
     if trained_tasks:
@@ -38,8 +38,6 @@ def train_classifier_lwf(cfg, task):
 
         nn.init.xavier_uniform_(cfg["classifier"].fc.weight)
         cfg["classifier"].fc.bias.data.fill_(0)
-
-        utils.apply_prunning(cfg, task, trained_tasks)
 
         for classe in range(cfg["num_classes"]):
             if classe in trained_tasks:
@@ -78,7 +76,9 @@ def train_classifier_lwf(cfg, task):
             if trained_tasks:
                 previous_output, _ = previous_model(imgs)
 
-                dist_loss = ls.distillation_loss(output, previous_output, temperature)
+                dist_loss = ls.distillation_loss(
+                    output, previous_output, trained_tasks, temperature
+                )
 
                 train_loss = orginal_loss + (lwf_alpha * dist_loss)
                 dist_losses += dist_loss.item()
