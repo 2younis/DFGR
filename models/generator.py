@@ -1,10 +1,10 @@
-# https://github.com/amanchadha/coursera-gan-specialization/blob/c20539e62934775711fd4f7165dfb5653c130875/C2%20-%20Build%20Better%20Generative%20Adversarial%20Networks/Week%203/BigGAN.ipynb
-
 import torch
 import torch.nn.functional as F
 from numpy.random import default_rng
 from scipy.stats import truncnorm
 from torch import nn
+
+# https://github.com/amanchadha/coursera-gan-specialization/blob/main/C2%20-%20Build%20Better%20Generative%20Adversarial%20Networks/Week%203/BigGAN.ipynb
 
 
 class Generator(nn.Module):
@@ -104,13 +104,20 @@ class Generator(nn.Module):
         print("Model Generator's size: {:.3f}MB".format(size_all_mb))
 
     def generate(
-        self, classes, batch_size=32, labels=None, trunc=None, probabilities=None
+        self, classes=None, batch_size=32, labels=None, trunc=None, probabilities=None
     ):
 
-        if labels is None:
-            labels = torch.from_numpy(
-                self.rng.choice(list(classes.keys()), size=batch_size, p=probabilities)
-            )
+        if classes is None:
+            labels_emb = torch.randn((batch_size, self.shared_dim), device=self.device)
+            labels = None
+        else:
+            if labels is None:
+                labels = torch.from_numpy(
+                    self.rng.choice(
+                        list(classes.keys()), size=batch_size, p=probabilities
+                    )
+                )
+            labels_emb = self.shared_emb(labels.to(self.device))
 
         if trunc is None:
             rand_z = torch.randn((batch_size, self.z_dim), device=self.device)
@@ -118,9 +125,7 @@ class Generator(nn.Module):
             truncated_z = truncnorm.rvs(-trunc, trunc, size=(batch_size, self.z_dim))
             rand_z = torch.Tensor(truncated_z).to(self.device)
 
-        labels_emb = self.shared_emb(labels.to(self.device))
         fakes = self.forward(rand_z, labels_emb)
-
         return fakes, labels
 
     def forward(self, z, y):

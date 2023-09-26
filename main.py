@@ -3,30 +3,21 @@ import os
 import shutil
 
 import mlflow
-import torch
-
-from trainers import dfgr, lwf, ewc, naive
 from configs import config
 from models import Classifier, Generator
-from utils import create_dataset, validate_classifier, test_classifier
+from trainers import *
+from utils import *
 
 cfg = config("configs/config.yaml")
 
 
 def train_dfgr(image_dataset):
 
-    cfg["generator"] = Generator(cfg).to(cfg["device"])
-    cfg["g_optimizer"] = torch.optim.Adam(
-        cfg["generator"].parameters(),
-        lr=cfg["optimizer_lr"],
-        betas=(cfg["optimizer_beta_1"], cfg["optimizer_beta_2"]),
+    cfg["classifier"], cfg["cl_optimizer"] = initialize_model_and_optimizer(
+        cfg, Classifier
     )
-
-    cfg["classifier"] = Classifier(cfg).to(cfg["device"])
-    cfg["cl_optimizer"] = torch.optim.Adam(
-        cfg["classifier"].parameters(),
-        lr=cfg["optimizer_lr"],
-        betas=(cfg["optimizer_beta_1"], cfg["optimizer_beta_2"]),
+    cfg["generator"], cfg["g_optimizer"] = initialize_model_and_optimizer(
+        cfg, Generator
     )
 
     cfg["dataset"] = image_dataset
@@ -37,11 +28,11 @@ def train_dfgr(image_dataset):
         for scenario_name, scenario_tasks in cfg["scenarios"].items():
             tasks = copy.deepcopy(scenario_tasks)
 
-            cfg["generator"].weights_init()
             cfg["classifier"].weights_init()
+            cfg["generator"].weights_init()
 
             os.makedirs("saved_models", exist_ok=True)
-            mlflow.set_experiment(f"case_{i} {scenario_name} {image_dataset}")
+            mlflow.set_experiment(f"yo_case_{i} {scenario_name} {image_dataset}")
 
             for task_no, cl_task in enumerate(tasks):
                 with mlflow.start_run():
@@ -60,19 +51,16 @@ def train_dfgr(image_dataset):
 
             shutil.rmtree("saved_models/")
 
-    del cfg["generator"]
-    del cfg["g_optimizer"]
     del cfg["classifier"]
     del cfg["cl_optimizer"]
+    del cfg["generator"]
+    del cfg["g_optimizer"]
 
 
 def train_baselines(image_dataset, strategy):
 
-    cfg["classifier"] = Classifier(cfg).to(cfg["device"])
-    cfg["cl_optimizer"] = torch.optim.Adam(
-        cfg["classifier"].parameters(),
-        lr=cfg["optimizer_lr"],
-        betas=(cfg["optimizer_beta_1"], cfg["optimizer_beta_2"]),
+    cfg["classifier"], cfg["cl_optimizer"] = initialize_model_and_optimizer(
+        cfg, Classifier
     )
 
     cfg["dataset"] = image_dataset
@@ -83,19 +71,14 @@ def train_baselines(image_dataset, strategy):
         cfg["classifier"].weights_init()
 
         os.makedirs("saved_models", exist_ok=True)
-        mlflow.set_experiment(f"{strategy} {scenario_name} {image_dataset}")
+        mlflow.set_experiment(f"yo_{strategy} {scenario_name} {image_dataset}")
 
         for task_no, cl_task in enumerate(tasks):
             with mlflow.start_run():
                 mlflow.log_param("task_no", task_no)
                 mlflow.log_param("task", cl_task)
 
-                if strategy == "EWC":
-                    ewc.train_classifier_ewc(cfg, cl_task)
-                elif strategy == "LWF":
-                    lwf.train_classifier_lwf(cfg, cl_task)
-                elif strategy == "Naive":
-                    naive.train_classifier_naive(cfg, cl_task)
+                eval(strategy.lower()).train_classifier(cfg, cl_task)
 
             with mlflow.start_run():
                 validate_classifier(cfg)

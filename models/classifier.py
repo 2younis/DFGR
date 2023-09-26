@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 
-# https://github.com/amanchadha/coursera-gan-specialization/blob/c20539e62934775711fd4f7165dfb5653c130875/C2%20-%20Build%20Better%20Generative%20Adversarial%20Networks/Week%203/BigGAN.ipynb
+# https://github.com/amanchadha/coursera-gan-specialization/blob/main/C2%20-%20Build%20Better%20Generative%20Adversarial%20Networks/Week%203/BigGAN.ipynb
 
 
 class Classifier(nn.Module):

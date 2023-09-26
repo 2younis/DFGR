@@ -6,7 +6,7 @@ from torch.utils.data import DataLoader
 from dataset import TrainDatasetUnbalanced
 
 
-def train_classifier_naive(cfg, task):
+def train_classifier(cfg, task):
 
     trained_tasks = {}
 

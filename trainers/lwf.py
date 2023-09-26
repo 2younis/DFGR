@@ -11,7 +11,7 @@ import losses as ls
 from dataset import TrainDatasetUnbalanced
 
 
-def train_classifier_lwf(cfg, task):
+def train_classifier(cfg, task):
 
     trained_tasks = {}
     previous_model = None

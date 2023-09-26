@@ -117,6 +117,16 @@ def cumulative(lists):
     return [sum(lists[0:x:1]) for x in range(1, len(lists) + 1)]
 
 
+def initialize_model_and_optimizer(cfg, model_class):
+    model = model_class(cfg).to(cfg["device"])
+    optimizer = torch.optim.Adam(
+        model.parameters(),
+        lr=cfg["optimizer_lr"],
+        betas=(cfg["optimizer_beta_1"], cfg["optimizer_beta_2"]),
+    )
+    return model, optimizer
+
+
 def save_features(cfg):
     if cfg["classifier_checkpoint_path"].is_file():
         model_checkpoint = torch.load(cfg["classifier_model_file"])

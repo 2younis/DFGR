@@ -10,7 +10,7 @@ import utils
 from dataset import TrainDatasetUnbalanced
 
 
-def train_classifier_ewc(cfg, task):
+def train_classifier(cfg, task):
 
     trained_tasks = {}
 
