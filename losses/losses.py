@@ -67,3 +67,22 @@ def distillation_loss(output, previous_output, trained_tasks, temperature=2.0):
     dist_loss = F.kl_div(log_p, q, reduction="batchmean")
 
     return dist_loss
+
+
+# https://github.com/xmengxin/MFGR/blob/main/trainers/df_generator_trainer.py#L82C17-L87C114
+
+
+def variation_regularization_loss(imgs):
+    diff1 = imgs[:, :, :, :-1] - imgs[:, :, :, 1:]
+    diff2 = imgs[:, :, :-1, :] - imgs[:, :, 1:, :]
+    diff3 = imgs[:, :, 1:, :-1] - imgs[:, :, :-1, 1:]
+    diff4 = imgs[:, :, :-1, :-1] - imgs[:, :, 1:, 1:]
+
+    loss = (
+        diff1.mean().abs()
+        + diff2.mean().abs()
+        + diff3.mean().abs()
+        + diff4.mean().abs()
+    ) / 4
+
+    return loss

@@ -37,7 +37,8 @@ optimizer_beta_2: 0.999
 
 features_file: "data/features.pt"
 
-baseline_strategies: ["EWC", "LWF", "Naive"]
+basic_strategies: ["EWC", "LWF", "Naive"]
+advanced_strategies: ["DFCIL", "MFGR"]
 
 # Generator Training
 

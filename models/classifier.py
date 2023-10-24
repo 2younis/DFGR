@@ -92,7 +92,7 @@ class Classifier(nn.Module):
             if isinstance(module, nn.BatchNorm2d):
                 self.hooks.append(Hook(module))
 
-    def forward(self, x):
+    def forward(self, x, features_only=False):
         h = self.blocks(x)
 
         h = self.avgpool(h)
@@ -100,7 +100,10 @@ class Classifier(nn.Module):
         h = h.view(h.shape[0], -1)
         out = self.fc(h)
 
-        return out, h
+        if features_only:
+            return h
+        else:
+            return out, h
 
 
 class ResidualBlock(nn.Module):

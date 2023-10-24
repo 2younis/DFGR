@@ -249,3 +249,17 @@ def apply_prunning(cfg, task, trained_tasks):
         if classe not in total_tasks:
             cfg["classifier"].fc.weight.data[classe] *= 0.0
             cfg["classifier"].fc.bias.data[classe] *= 0.0
+
+
+def filter_logits(cfg, logits, task):
+    mask = torch.ones(cfg["num_classes"], device=cfg["device"])
+
+    for classe in range(cfg["num_classes"]):
+        if classe not in task:
+            mask[classe] *= 0.0
+
+    with torch.no_grad():
+        for i in range(len(logits)):
+            logits[i] *= mask
+
+    return logits
